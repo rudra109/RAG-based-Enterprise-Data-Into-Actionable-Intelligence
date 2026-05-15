@@ -1,0 +1,73 @@
+# ============================================================
+# EnterpriseIQ — ML/AI Service (Developer B) Requirements
+# Python 3.12
+# ============================================================
+
+# ── Google Cloud / Vertex AI ──────────────────────────────
+google-cloud-aiplatform
+google-cloud-bigquery
+google-cloud-bigquery-storage
+google-cloud-storage
+google-cloud-pubsub
+google-cloud-language
+google-cloud-spanner
+google-cloud-firestore
+google-cloud-secret-manager
+google-cloud-monitoring
+google-generativeai
+vertexai
+
+# ── Serving / API ─────────────────────────────────────────
+fastapi
+uvicorn[standard]
+httpx
+pydantic
+python-multipart
+sse-starlette
+
+# ── ML / Data Science ─────────────────────────────────────
+scikit-learn
+pandas
+numpy
+scipy
+prophet
+lightgbm
+torch
+transformers
+
+# ── LangChain (Google integration) ───────────────────────
+langchain
+langchain-google-vertexai
+langchain-google-community
+ragas
+
+# ── NLP / Text Processing ─────────────────────────────────
+tiktoken
+nltk
+spacy
+pdfminer.six
+python-docx
+openpyxl
+
+# ── Observability ─────────────────────────────────────────
+opentelemetry-api
+opentelemetry-sdk
+opentelemetry-exporter-gcp-monitoring==1.12.0a0
+structlog
+prometheus-client
+
+# ── Testing ───────────────────────────────────────────────
+pytest
+pytest-asyncio
+pytest-cov
+pytest-mock
+httpx
+
+# ── Utilities ─────────────────────────────────────────────
+python-dotenv
+tenacity
+cachetools
+ujson
+aiofiles
+arrow
+chromadb

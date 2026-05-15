@@ -1,0 +1,311 @@
+version: "3.9"
+
+# ══════════════════════════════════════════════════════════════════════════════
+# EnterpriseIQ — Unified Development Stack
+# Developer A (Backend API) + Developer B (ML Services)
+# ══════════════════════════════════════════════════════════════════════════════
+
+x-gcp-env: &gcp-env
+  GCP_PROJECT_ID: ${GCP_PROJECT_ID:-enterpriseiq-dev}
+  GCP_REGION: ${GCP_REGION:-us-central1}
+  GOOGLE_APPLICATION_CREDENTIALS: /credentials/service-account.json
+  BIGQUERY_PROJECT: ${BIGQUERY_PROJECT:-enterpriseiq-dev}
+  BIGQUERY_DATASET: ${BIGQUERY_DATASET:-enterpriseiq_core}
+  PUBSUB_PROJECT: ${PUBSUB_PROJECT:-enterpriseiq-dev}
+
+x-ml-topics: &ml-topics
+  PUBSUB_TOPIC_DOCUMENT_INGESTED: enterpriseiq.document.ingested
+  PUBSUB_TOPIC_ANOMALY_DETECTED: enterpriseiq.anomaly.detected
+  PUBSUB_TOPIC_FORECAST_READY: enterpriseiq.forecast.ready
+
+services:
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # SHARED INFRASTRUCTURE
+  # ─────────────────────────────────────────────────────────────────────────
+
+  redis:
+    image: redis:7-alpine
+    container_name: enterpriseiq-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - enterpriseiq
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # DEVELOPER A — Backend REST API (FastAPI)
+  # ─────────────────────────────────────────────────────────────────────────
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: enterpriseiq-backend
+    ports:
+      - "8080:8080"
+    environment:
+      <<: [*gcp-env, *ml-topics]
+      ENVIRONMENT: development
+      API_PORT: 8080
+      API_DEBUG: "true"
+      LOG_LEVEL: INFO
+      REDIS_URL: redis://redis:6379/0
+      # ML Service URLs — points to Developer B containers
+      RAG_SERVICE_URL: http://rag-service:8001
+      ANOMALY_SERVICE_URL: http://anomaly-service:8002
+      FORECAST_SERVICE_URL: http://forecast-service:8003
+      AGENT_SERVICE_URL: http://agent-service:8004
+      KG_SERVICE_URL: http://kg-service:8005
+      # GCS Buckets
+      GCS_RAW_BUCKET: ${GCS_RAW_BUCKET:-enterpriseiq-raw-uploads}
+      GCS_PROCESSED_BUCKET: ${GCS_PROCESSED_BUCKET:-enterpriseiq-processed-docs}
+      # Auth
+      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:-enterpriseiq-dev}
+      CORS_ORIGINS: "http://localhost:3000,http://localhost:3001"
+    volumes:
+      - ./backend:/app
+      - ${GOOGLE_APPLICATION_CREDENTIALS_PATH:-./credentials}:/credentials:ro
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    networks:
+      - enterpriseiq
+    restart: unless-stopped
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8080 --reload
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # DEVELOPER B — RAG Service (ML)
+  # ─────────────────────────────────────────────────────────────────────────
+
+  rag-service:
+    build:
+      context: ./ml
+      dockerfile: rag/Dockerfile
+    container_name: enterpriseiq-rag
+    ports:
+      - "8001:8001"
+    environment:
+      <<: [*gcp-env, *ml-topics]
+      RAG_SERVICE_PORT: 8001
+      GEMINI_PRO_MODEL: ${GEMINI_PRO_MODEL:-gemini-1.5-pro}
+      GEMINI_FLASH_MODEL: ${GEMINI_FLASH_MODEL:-gemini-1.5-flash}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-text-embedding-004}
+      VERTEX_AI_INDEX_ID: ${VERTEX_AI_INDEX_ID:-}
+      VERTEX_AI_INDEX_ENDPOINT_ID: ${VERTEX_AI_INDEX_ENDPOINT_ID:-}
+      EMBEDDING_DIMENSIONS: 768
+      MAX_CHUNK_TOKENS: 512
+      CHUNK_OVERLAP_TOKENS: 50
+      DEFAULT_TOP_K: 5
+      RAG_CONFIDENCE_THRESHOLD: 0.7
+    volumes:
+      - ./ml:/app
+      - ${GOOGLE_APPLICATION_CREDENTIALS_PATH:-./credentials}:/credentials:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    networks:
+      - enterpriseiq
+    restart: unless-stopped
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # DEVELOPER B — Anomaly Detection Service
+  # ─────────────────────────────────────────────────────────────────────────
+
+  anomaly-service:
+    build:
+      context: ./ml
+      dockerfile: Dockerfile.anomaly
+    container_name: enterpriseiq-anomaly
+    ports:
+      - "8002:8002"
+    environment:
+      <<: [*gcp-env, *ml-topics]
+      ANOMALY_SERVICE_PORT: 8002
+      ANOMALY_THRESHOLD: ${ANOMALY_THRESHOLD:-0.5}
+    volumes:
+      - ./ml:/app
+      - ${GOOGLE_APPLICATION_CREDENTIALS_PATH:-./credentials}:/credentials:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    networks:
+      - enterpriseiq
+    restart: unless-stopped
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # DEVELOPER B — Forecasting Service
+  # ─────────────────────────────────────────────────────────────────────────
+
+  forecast-service:
+    build:
+      context: ./ml
+      dockerfile: Dockerfile.forecast
+    container_name: enterpriseiq-forecast
+    ports:
+      - "8003:8003"
+    environment:
+      <<: [*gcp-env, *ml-topics]
+      FORECAST_SERVICE_PORT: 8003
+    volumes:
+      - ./ml:/app
+      - ${GOOGLE_APPLICATION_CREDENTIALS_PATH:-./credentials}:/credentials:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8003/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    networks:
+      - enterpriseiq
+    restart: unless-stopped
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # DEVELOPER B — Analytics Agent Service
+  # ─────────────────────────────────────────────────────────────────────────
+
+  agent-service:
+    build:
+      context: ./ml
+      dockerfile: Dockerfile.agent
+    container_name: enterpriseiq-agent
+    ports:
+      - "8004:8004"
+    environment:
+      <<: [*gcp-env, *ml-topics]
+      AGENT_SERVICE_PORT: 8004
+      GEMINI_PRO_MODEL: ${GEMINI_PRO_MODEL:-gemini-1.5-pro}
+    volumes:
+      - ./ml:/app
+      - ${GOOGLE_APPLICATION_CREDENTIALS_PATH:-./credentials}:/credentials:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8004/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    networks:
+      - enterpriseiq
+    restart: unless-stopped
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # DEVELOPER B — Knowledge Graph Service
+  # ─────────────────────────────────────────────────────────────────────────
+
+  kg-service:
+    build:
+      context: ./ml
+      dockerfile: Dockerfile.kg
+    container_name: enterpriseiq-kg
+    ports:
+      - "8005:8005"
+    environment:
+      <<: [*gcp-env, *ml-topics]
+      KG_SERVICE_PORT: 8005
+      SPANNER_INSTANCE_ID: ${SPANNER_INSTANCE_ID:-enterpriseiq-kg}
+      SPANNER_DATABASE_ID: ${SPANNER_DATABASE_ID:-knowledge-graph}
+    volumes:
+      - ./ml:/app
+      - ${GOOGLE_APPLICATION_CREDENTIALS_PATH:-./credentials}:/credentials:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8005/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    networks:
+      - enterpriseiq
+    restart: unless-stopped
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # OBSERVABILITY — Prometheus + Grafana
+  # ─────────────────────────────────────────────────────────────────────────
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: enterpriseiq-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./infrastructure/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=15d"
+    networks:
+      - enterpriseiq
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: enterpriseiq-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./infrastructure/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+    depends_on:
+      - prometheus
+    networks:
+      - enterpriseiq
+    restart: unless-stopped
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # DEVELOPER C — Frontend Application
+  # ─────────────────────────────────────────────────────────────────────────
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    container_name: enterpriseiq-frontend
+    ports:
+      - "3001:3001"
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8080
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.next
+    networks:
+      - enterpriseiq
+    restart: unless-stopped
+
+# ─────────────────────────────────────────────────────────────────────────
+# NETWORKS & VOLUMES
+# ─────────────────────────────────────────────────────────────────────────
+
+networks:
+  enterpriseiq:
+    driver: bridge
+    name: enterpriseiq-network
+
+volumes:
+  redis_data:
+    name: enterpriseiq-redis-data
+  prometheus_data:
+    name: enterpriseiq-prometheus-data
+  grafana_data:
+    name: enterpriseiq-grafana-data

@@ -1,0 +1,32 @@
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "-v",
+    "--tb=short",
+    "--cov=app",
+    "--cov-report=term-missing",
+    "--cov-report=html:htmlcov",
+]
+filterwarnings = ["ignore::DeprecationWarning"]
+
+[tool.coverage.run]
+source = ["app"]
+omit = ["tests/*", "app/__init__.py", "app/core/__init__.py", "app/routers/__init__.py", "app/services/__init__.py"]
+
+[tool.coverage.report]
+show_missing = true
+fail_under = 75
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "enterpriseiq-backend"
+version = "1.0.0"
+description = "EnterpriseIQ Backend API — Developer A"
+requires-python = ">=3.12"
