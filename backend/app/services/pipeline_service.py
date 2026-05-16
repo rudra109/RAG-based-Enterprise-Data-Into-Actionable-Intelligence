@@ -12,6 +12,7 @@ from datetime import datetime
 from typing import Any, Optional
 
 import structlog
+from fastapi import Depends
 
 from app.core.clients import (
     BigQueryClient,
@@ -300,15 +301,9 @@ class PipelineService:
 
 # ── Dependency ────────────────────────────────────────────────────────────────
 
-_service: Optional[PipelineService] = None
-
-
-def get_pipeline_service() -> PipelineService:
-    global _service
-    if _service is None:
-        _service = PipelineService(
-            bq=get_bq(),
-            gcs=get_gcs(),
-            pubsub=get_pubsub(),
-        )
-    return _service
+def get_pipeline_service(
+    bq: BigQueryClient = Depends(get_bq),
+    gcs: GCSClient = Depends(get_gcs),
+    pubsub: PubSubClient = Depends(get_pubsub),
+) -> PipelineService:
+    return PipelineService(bq=bq, gcs=gcs, pubsub=pubsub)

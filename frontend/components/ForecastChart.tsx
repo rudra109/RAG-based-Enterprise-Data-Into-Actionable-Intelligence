@@ -17,9 +17,27 @@ import { ForecastPoint } from '@/types/forecast';
 interface ForecastChartProps {
   data: ForecastPoint[];
   forecastStartDate: string;
+  hasData?: boolean;
 }
 
-export default function ForecastChart({ data, forecastStartDate }: ForecastChartProps) {
+export default function ForecastChart({ data, forecastStartDate, hasData = true }: ForecastChartProps) {
+  const hasVisibleSeries = hasData && data.some((point) => (
+    typeof point.actual_value === 'number' || typeof point.predicted_value === 'number'
+  ));
+
+  if (!hasVisibleSeries) {
+    return (
+      <div className="w-full h-[450px] bg-slate-900/30 p-6 rounded-3xl border border-slate-800/50 shadow-2xl flex items-center justify-center">
+        <div className="max-w-md text-center">
+          <div className="text-lg font-bold text-white">No forecast baseline yet</div>
+          <p className="mt-2 text-sm text-slate-500">
+            Add workspace data first. Forecasting needs historical records before it can draw actual and predicted demand lines.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="w-full h-[450px] bg-slate-900/30 p-6 rounded-3xl border border-slate-800/50 shadow-2xl">
       <ResponsiveContainer width="100%" height="100%">
@@ -75,7 +93,7 @@ export default function ForecastChart({ data, forecastStartDate }: ForecastChart
             dataKey="upper_bound"
             stroke="none"
             fill="#3b82f6"
-            fillOpacity={0.05}
+            fillOpacity={0.08}
           />
           <Area
             type="monotone"

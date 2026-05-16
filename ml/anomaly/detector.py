@@ -15,7 +15,7 @@ from __future__ import annotations
 import json
 import re
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import InitVar, dataclass, field
 from datetime import datetime, timezone
 from typing import Literal
 
@@ -44,12 +44,17 @@ class Anomaly:
     method: DetectionMethod
     metric_name: str = ""
     anomaly_score: float = 0.0
+    score: InitVar[float | None] = None
     expected_value: float | None = None
     lower_bound: float | None = None
     upper_bound: float | None = None
     reason: str = ""
     severity: Severity = "medium"
     anomaly_id: str = field(default_factory=lambda: str(uuid.uuid4()))
+
+    def __post_init__(self, score: float | None) -> None:
+        if score is not None:
+            self.anomaly_score = score
 
 
 @dataclass
@@ -94,8 +99,18 @@ class AnomalyDetectionSystem:
         if len(series) < 4:
             return []
 
-        # Z-score
-        z_scores = np.abs(stats.zscore(series.dropna()))
+        # Z-score; constant series produce scipy precision warnings and no useful z-scores.
+        clean_series = series.dropna()
+        if len(clean_series) < 2 or clean_series.nunique() <= 1:
+            z_scores = pd.Series(0.0, index=clean_series.index)
+        else:
+            z_values = np.nan_to_num(
+                np.abs(stats.zscore(clean_series)),
+                nan=0.0,
+                posinf=0.0,
+                neginf=0.0,
+            )
+            z_scores = pd.Series(z_values, index=clean_series.index)
 
         # IQR
         q1 = series.quantile(0.25)
@@ -109,11 +124,11 @@ class AnomalyDetectionSystem:
             if pd.isna(value):
                 continue
 
-            is_z_anomaly = i < len(z_scores) and z_scores[i] > 3
+            z = float(z_scores.get(idx, 0.0))
+            is_z_anomaly = z > 3
             is_iqr_anomaly = value < lower or value > upper
 
             if is_z_anomaly or is_iqr_anomaly:
-                z = float(z_scores[i]) if i < len(z_scores) else 0.0
                 score = min(z / 6.0, 1.0)  # normalise to 0-1
                 anomalies.append(Anomaly(
                     index=int(idx) if isinstance(idx, (int, np.integer)) else i,
@@ -151,7 +166,7 @@ class AnomalyDetectionSystem:
             n_estimators=200,
             contamination=0.05,
             random_state=42,
-            n_jobs=-1,
+            n_jobs=1,
         )
         clf.fit(feature_df)
 
@@ -255,11 +270,22 @@ If no anomalies found, return: []"""
             else:
                 # Consensus anomaly — take highest score, elevate severity
                 best = max(group, key=lambda a: a.anomaly_score)
-                best.anomaly_score = min(
+                score = min(
                     sum(a.anomaly_score for a in group) / len(group) * 1.2, 1.0
                 )
-                best.severity = self._score_to_severity(best.anomaly_score)
-                merged.append(best)
+                merged.append(Anomaly(
+                    index=best.index,
+                    actual_value=best.actual_value,
+                    method=best.method,
+                    metric_name=best.metric_name,
+                    anomaly_score=score,
+                    expected_value=best.expected_value,
+                    lower_bound=best.lower_bound,
+                    upper_bound=best.upper_bound,
+                    reason=best.reason,
+                    severity=self._score_to_severity(score),
+                    anomaly_id=best.anomaly_id,
+                ))
 
         return sorted(merged, key=lambda a: a.anomaly_score, reverse=True)
 

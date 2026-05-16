@@ -17,7 +17,7 @@ from prometheus_fastapi_instrumentator import Instrumentator
 
 from app.core.config import get_settings
 from app.core.logging_setup import setup_logging
-from app.routers import agent, anomaly, auth, forecast, kg, notifications, pipeline
+from app.routers import agent, anomaly, auth, forecast, kg, notifications, pipeline, rag
 
 logger = structlog.get_logger(__name__)
 settings = get_settings()
@@ -113,6 +113,7 @@ The unified REST API layer for the EnterpriseIQ platform, built by **Developer A
     # ── Routers ──────────────────────────────────────────────────────────────
 
     app.include_router(auth.router)
+    app.include_router(rag.router)
     app.include_router(pipeline.router)
     app.include_router(agent.router)
     app.include_router(anomaly.router)

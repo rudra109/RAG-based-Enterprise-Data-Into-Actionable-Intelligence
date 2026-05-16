@@ -95,51 +95,48 @@ class ForecastingSystem:
         train = ts.iloc[:split_idx]
         test = ts.iloc[split_idx:]
 
-        model = Prophet(
-            yearly_seasonality=True,
-            weekly_seasonality=True,
-            daily_seasonality=len(ts) > 100,
-            changepoint_prior_scale=0.05,
-            seasonality_mode="multiplicative" if ts["y"].min() > 0 else "additive",
-        )
+        try:
+            model = Prophet(
+                yearly_seasonality=True,
+                weekly_seasonality=True,
+                daily_seasonality=len(ts) > 100,
+                changepoint_prior_scale=0.05,
+                seasonality_mode="multiplicative" if ts["y"].min() > 0 else "additive",
+            )
 
-        # Add country holidays if data spans > 60 days
-        date_range = (ts["ds"].max() - ts["ds"].min()).days
-        if date_range > 60:
-            model.add_country_holidays(country_name="US")
+            date_range = (ts["ds"].max() - ts["ds"].min()).days
+            if date_range > 60:
+                model.add_country_holidays(country_name="US")
 
-        model.fit(train)
-
-        # In-sample test evaluation
-        test_forecast = model.predict(test[["ds"]])
-        metrics = self._compute_metrics(
-            actual=test["y"].values,
-            predicted=test_forecast["yhat"].values,
-        )
-
-        # Future forecast
-        future = model.make_future_dataframe(periods=horizon, freq="D")
-        forecast = model.predict(future)
-        future_df = forecast.iloc[-horizon:]
-
-        predictions = [
-            {
-                "ds": row["ds"].isoformat(),
-                "yhat": round(float(row["yhat"]), 4),
-                "yhat_lower": round(float(row["yhat_lower"]), 4),
-                "yhat_upper": round(float(row["yhat_upper"]), 4),
-                "is_forecast": True,
-                "model_version": "prophet-1.0",
-            }
-            for _, row in future_df.iterrows()
-        ]
+            model.fit(train)
+            test_forecast = model.predict(test[["ds"]])
+            metrics = self._compute_metrics(
+                actual=test["y"].values,
+                predicted=test_forecast["yhat"].values,
+            )
+            future = model.make_future_dataframe(periods=horizon, freq="D")
+            forecast = model.predict(future)
+            future_df = forecast.iloc[-horizon:]
+            predictions = [
+                {
+                    "ds": row["ds"].isoformat(),
+                    "yhat": round(float(row["yhat"]), 4),
+                    "yhat_lower": round(float(row["yhat_lower"]), 4),
+                    "yhat_upper": round(float(row["yhat_upper"]), 4),
+                    "is_forecast": True,
+                    "model_version": "prophet-1.0",
+                }
+                for _, row in future_df.iterrows()
+            ]
+            changepoints = [str(cp.date()) for cp in model.changepoints]
+        except Exception as e:
+            logger.warning("Prophet unavailable, using linear fallback", error=str(e))
+            predictions, metrics, changepoints = self._linear_forecast(ts, horizon)
 
         historical = [
             {"ds": row["ds"].isoformat(), "y": round(float(row["y"]), 4), "is_forecast": False}
             for _, row in ts.iterrows()
         ]
-
-        changepoints = [str(cp.date()) for cp in model.changepoints]
 
         explanation = self.explain_forecast(
             target_col=target_col,
@@ -330,7 +327,29 @@ and confidence in the forecast. Use plain English, no jargon."""
         nonzero_mask = actual != 0
         mape = float(np.mean(np.abs((actual[nonzero_mask] - predicted[nonzero_mask])
                                      / actual[nonzero_mask])) * 100) if nonzero_mask.any() else 0.0
-        return {"mae": round(mae, 4), "rmse": round(rmse, 4), "mape": round(mape, 2)}
+        return {"mae": mae, "rmse": rmse, "mape": mape}
+
+    def _linear_forecast(self, ts: pd.DataFrame, horizon: int) -> tuple[list[dict], dict[str, float], list[str]]:
+        x = np.arange(len(ts), dtype=float)
+        y = ts["y"].to_numpy(dtype=float)
+        slope, intercept = np.polyfit(x, y, 1)
+        fitted = slope * x + intercept
+        metrics = self._compute_metrics(y, fitted)
+        residual_std = float(np.std(y - fitted)) or 1.0
+        start_date = ts["ds"].max()
+        predictions = []
+        for step in range(1, horizon + 1):
+            yhat = float(slope * (len(ts) + step - 1) + intercept)
+            ds = start_date + pd.Timedelta(days=step)
+            predictions.append({
+                "ds": ds.isoformat(),
+                "yhat": round(yhat, 4),
+                "yhat_lower": round(yhat - 1.96 * residual_std, 4),
+                "yhat_upper": round(yhat + 1.96 * residual_std, 4),
+                "is_forecast": True,
+                "model_version": "prophet-1.0",
+            })
+        return predictions, metrics, []
 
     def _log_metrics_to_bq(self, forecast_id: str, dataset_id: str,
                              target_col: str, metrics: dict, model_name: str) -> None:

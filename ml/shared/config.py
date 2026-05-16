@@ -10,12 +10,14 @@ from functools import lru_cache
 
 from dotenv import load_dotenv
 from pydantic import field_validator
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 load_dotenv()
 
 
 class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env", case_sensitive=False, extra="ignore")
+
     # ── Google Cloud ────────────────────────────────────────
     gcp_project_id: str = "enterpriseiq-dev"
     gcp_region: str = "us-central1"
@@ -49,10 +51,6 @@ class Settings(BaseSettings):
     chunk_overlap_tokens: int = 50
     default_top_k: int = 5
     rag_confidence_threshold: float = 0.7
-
-    class Config:
-        env_file = ".env"
-        case_sensitive = False
 
 
 @lru_cache(maxsize=1)

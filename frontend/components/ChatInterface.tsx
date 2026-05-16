@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useMemo, useState, useRef, useEffect } from 'react';
 import { 
   Send, 
   Paperclip, 
@@ -10,9 +10,6 @@ import {
   FileText, 
   ChevronDown, 
   Loader2,
-  Trash2,
-  CheckCircle2,
-  AlertCircle,
   X
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -25,20 +22,42 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Message, Source, Corpus } from '@/types/chat';
+import { Message, Corpus, RagDocument, Source } from '@/types/chat';
 import { cn } from '@/lib/utils';
+import { useStore } from '@/store/useStore';
 
 export default function ChatInterface() {
+  const { selectedWorkspace, addWorkspaceData, addRagDocuments, ragDocuments, ragFeedback, setRagFeedback } = useStore();
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [selectedCorpus, setSelectedCorpus] = useState<Corpus | null>(null);
-  const [corpora] = useState<Corpus[]>([
-    { id: '1', name: 'Product Documentation', description: 'Internal product guides' },
-    { id: '2', name: 'Legal Contracts', description: 'Signed vendor agreements' },
-    { id: '3', name: 'Technical Specs', description: 'System architecture docs' },
-  ]);
+  const [activeSource, setActiveSource] = useState<Source | null>(null);
+  const corpora = useMemo<Corpus[]>(() => {
+    if (selectedWorkspace === 'R&D Lab') {
+      return [
+        { id: 'rd-1', name: 'Experiment Notes', description: 'Model evaluation and benchmark docs' },
+        { id: 'rd-2', name: 'Research Specs', description: 'R&D architecture and prompts' },
+      ];
+    }
+    if (selectedWorkspace === 'Marketing Cloud') {
+      return [
+        { id: 'mk-1', name: 'Campaign Briefs', description: 'Campaign plans and creative specs' },
+        { id: 'mk-2', name: 'Attribution Reports', description: 'Conversion and channel reports' },
+      ];
+    }
+    if (selectedWorkspace !== 'Enterprise Workspace') {
+      return [
+        { id: 'custom-1', name: `${selectedWorkspace} Documents`, description: 'Uploaded workspace documents' },
+      ];
+    }
+    return [
+      { id: '1', name: 'Product Documentation', description: 'Internal product guides' },
+      { id: '2', name: 'Legal Contracts', description: 'Signed vendor agreements' },
+      { id: '3', name: 'Technical Specs', description: 'System architecture docs' },
+    ];
+  }, [selectedWorkspace]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -48,6 +67,15 @@ export default function ChatInterface() {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [messages]);
+
+  const activeSelectedCorpus = corpora.some((corpus) => corpus.id === selectedCorpus?.id)
+    ? selectedCorpus
+    : null;
+  const activeCorpus = activeSelectedCorpus || corpora[0] || null;
+  const workspaceDocuments = ragDocuments[selectedWorkspace] || [];
+  const activeDocuments = activeCorpus
+    ? workspaceDocuments.filter((document) => document.corpusId === activeCorpus.id)
+    : workspaceDocuments;
 
   const handleSend = async (e?: React.FormEvent) => {
     e?.preventDefault();
@@ -81,7 +109,9 @@ export default function ChatInterface() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           query: input, 
-          corpusId: selectedCorpus?.id,
+          corpusId: activeCorpus?.id,
+          workspace: selectedWorkspace,
+          documents: workspaceDocuments,
           history: messages.map(m => ({ role: m.role, content: m.content }))
         }),
       });
@@ -91,29 +121,41 @@ export default function ChatInterface() {
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let fullContent = '';
+      let pendingText = '';
+      let sourcesLoaded = false;
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
 
-        const chunk = decoder.decode(value);
-        // Assuming chunk might contain multiple events in SSE format
-        // For simplicity, we'll handle plain text or simple JSON chunks
-        try {
-          // Attempt to parse as JSON if it looks like it (e.g. metadata)
-          if (chunk.startsWith('{')) {
-            const data = JSON.parse(chunk);
+        let chunk = decoder.decode(value);
+
+        if (!sourcesLoaded) {
+          pendingText += chunk;
+          const newlineIndex = pendingText.indexOf('\n');
+
+          if (newlineIndex === -1) {
+            continue;
+          }
+
+          const metadataLine = pendingText.slice(0, newlineIndex).trim();
+          chunk = pendingText.slice(newlineIndex + 1);
+          pendingText = '';
+
+          try {
+            const data = JSON.parse(metadataLine);
             if (data.sources) {
               setMessages((prev) =>
                 prev.map((msg) =>
                   msg.id === assistantId ? { ...msg, sources: data.sources } : msg
                 )
               );
-              continue;
             }
+            sourcesLoaded = true;
+          } catch {
+            chunk = `${metadataLine}\n${chunk}`;
+            sourcesLoaded = true;
           }
-        } catch (e) {
-          // Not JSON, treat as text chunk
         }
 
         fullContent += chunk;
@@ -141,23 +183,54 @@ export default function ChatInterface() {
   const handleFileUpload = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
 
+    const fileArray = Array.from(files);
     const formData = new FormData();
-    Array.from(files).forEach((file) => {
+    fileArray.forEach((file) => {
       formData.append('files', file);
     });
     
-    if (selectedCorpus) {
-      formData.append('corpusId', selectedCorpus.id);
+    if (activeCorpus) {
+      formData.append('corpusId', activeCorpus.id);
     }
+    formData.append('workspace', selectedWorkspace);
 
     try {
+      const uploadedDocuments: RagDocument[] = await Promise.all(fileArray.map(async (file) => {
+        let content = '';
+        try {
+          content = await file.text();
+        } catch {
+          content = `${file.name} could not be read as text in the browser.`;
+        }
+
+        return {
+          id: `doc-${Date.now()}-${file.name}`,
+          workspace: selectedWorkspace,
+          corpusId: activeCorpus?.id || 'default',
+          corpusName: activeCorpus?.name || `${selectedWorkspace} Documents`,
+          name: file.name,
+          type: file.type || 'text/plain',
+          size: file.size,
+          content,
+          uploadedAt: new Date().toISOString(),
+        };
+      }));
+
       const response = await fetch('/v1/rag/ingest', {
         method: 'POST',
         body: formData,
       });
 
       if (response.ok) {
+        addRagDocuments(selectedWorkspace, uploadedDocuments);
         toast.success(`Successfully uploaded ${files.length} document(s)`);
+        uploadedDocuments.forEach((file) => {
+          addWorkspaceData(selectedWorkspace, {
+            name: file.name,
+            type: 'Document Set',
+            records: Math.max(1, file.content.split(/\s+/).filter(Boolean).length),
+          });
+        });
         console.log('Upload successful');
       } else {
         toast.error('Failed to upload documents');
@@ -170,21 +243,22 @@ export default function ChatInterface() {
   };
 
   const handleFeedback = (messageId: string, type: 'up' | 'down') => {
+    const nextFeedback = ragFeedback[messageId] === type ? null : type;
+    setRagFeedback(messageId, nextFeedback);
     setMessages((prev) =>
       prev.map((msg) =>
-        msg.id === messageId ? { ...msg, feedback: msg.feedback === type ? null : type } : msg
+        msg.id === messageId ? { ...msg, feedback: nextFeedback } : msg
       )
     );
-    // Call API in background
     fetch(`/v1/rag/feedback/${messageId}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ type }),
+      body: JSON.stringify({ type: nextFeedback }),
     }).catch(console.error);
   };
 
   return (
-    <div className="flex flex-col h-full bg-[#020617] text-slate-200">
+    <div className="flex h-full min-h-0 flex-col bg-[#020617] text-slate-200">
       {/* Header / Corpus Selector */}
       <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-[#020617]/50 backdrop-blur-md">
         <div className="flex items-center gap-3">
@@ -192,11 +266,14 @@ export default function ChatInterface() {
             <FileText className="w-5 h-5 text-white" />
           </div>
           <h1 className="text-lg font-semibold text-white">RAG Intelligence</h1>
+          <span className="rounded-full border border-slate-800 bg-slate-950 px-2 py-1 text-[10px] font-semibold uppercase tracking-widest text-slate-500">
+            {selectedWorkspace}
+          </span>
         </div>
 
         <DropdownMenu>
           <DropdownMenuTrigger className="inline-flex items-center justify-center rounded-lg border border-slate-800 bg-slate-900 px-4 py-2 text-sm font-medium text-slate-300 hover:bg-slate-800 hover:text-white transition-all gap-2 shadow-sm focus:ring-2 focus:ring-indigo-500/20 outline-none">
-            {selectedCorpus ? selectedCorpus.name : 'Select Corpus'}
+            {activeCorpus ? activeCorpus.name : 'Select Corpus'}
             <ChevronDown className="w-4 h-4 opacity-50" />
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-64 bg-slate-900 border-slate-800 text-slate-300">
@@ -217,7 +294,7 @@ export default function ChatInterface() {
       </div>
 
       {/* Messages Area */}
-      <ScrollArea className="flex-1 px-4 lg:px-8" ref={scrollRef}>
+      <ScrollArea className="min-h-0 flex-1 bg-[#020617] px-4 lg:px-8" ref={scrollRef}>
         <div className="max-w-4xl mx-auto py-8 space-y-8">
           {messages.length === 0 && (
             <div className="flex flex-col items-center justify-center py-20 text-center animate-in fade-in slide-in-from-bottom-4 duration-700">
@@ -229,13 +306,18 @@ export default function ChatInterface() {
               </div>
               <h2 className="text-2xl font-bold text-white mb-2">How can I help you today?</h2>
               <p className="text-slate-400 max-w-sm">
-                Ask questions about your documents, technical specs, or internal guides.
+                Upload documents into {activeCorpus?.name || selectedWorkspace}, then ask questions about their actual contents.
+              </p>
+              <p className="mt-3 max-w-md text-xs text-slate-600">
+                Current corpus: {activeCorpus?.name || 'None'} - {activeDocuments.length} indexed document(s)
               </p>
             </div>
           )}
 
-          {messages.map((message) => (
-            <div 
+          {messages.map((message) => {
+            const currentFeedback = message.role === 'assistant' ? (ragFeedback[message.id] || message.feedback) : message.feedback;
+            return (
+            <div
               key={message.id} 
               className={cn(
                 "flex gap-4 group animate-in fade-in duration-300",
@@ -254,7 +336,7 @@ export default function ChatInterface() {
                 message.role === 'user' ? "items-end" : "items-start"
               )}>
                 <div className={cn(
-                  "px-4 py-3 rounded-2xl text-sm leading-relaxed",
+                  "px-4 py-3 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap",
                   message.role === 'user' 
                     ? "bg-indigo-600 text-white rounded-tr-none" 
                     : "bg-slate-900 border border-slate-800 text-slate-200 rounded-tl-none"
@@ -271,14 +353,16 @@ export default function ChatInterface() {
                 {message.role === 'assistant' && message.sources && message.sources.length > 0 && (
                   <div className="flex flex-wrap gap-2 mt-1">
                     {message.sources.map((source, idx) => (
-                      <div 
-                        key={idx} 
+                      <button
+                        type="button"
+                        key={idx}
+                        onClick={() => setActiveSource(source)}
                         className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-slate-950 border border-slate-800 text-[11px] text-slate-400 hover:text-slate-300 hover:border-slate-700 transition-all cursor-pointer"
                       >
                         <FileText className="w-3 h-3" />
                         <span>{source.name}</span>
-                        {source.page && <span className="text-slate-600">• p.{source.page}</span>}
-                      </div>
+                        {source.page && <span className="text-slate-600">- {source.page}</span>}
+                      </button>
                     ))}
                   </div>
                 )}
@@ -288,16 +372,20 @@ export default function ChatInterface() {
                     <Button 
                       variant="ghost" 
                       size="icon" 
-                      className={cn("w-7 h-7 hover:bg-slate-800 rounded-lg", message.feedback === 'up' && "text-indigo-400")}
+                      className={cn("w-7 h-7 hover:bg-slate-800 rounded-lg", currentFeedback === 'up' && "text-indigo-400")}
                       onClick={() => handleFeedback(message.id, 'up')}
+                      aria-pressed={currentFeedback === 'up'}
+                      title="Helpful"
                     >
                       <ThumbsUp className="w-3.5 h-3.5" />
                     </Button>
                     <Button 
                       variant="ghost" 
                       size="icon" 
-                      className={cn("w-7 h-7 hover:bg-slate-800 rounded-lg", message.feedback === 'down' && "text-red-400")}
+                      className={cn("w-7 h-7 hover:bg-slate-800 rounded-lg", currentFeedback === 'down' && "text-red-400")}
                       onClick={() => handleFeedback(message.id, 'down')}
+                      aria-pressed={currentFeedback === 'down'}
+                      title="Not helpful"
                     >
                       <ThumbsDown className="w-3.5 h-3.5" />
                     </Button>
@@ -305,7 +393,8 @@ export default function ChatInterface() {
                 )}
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       </ScrollArea>
 
@@ -326,7 +415,7 @@ export default function ChatInterface() {
         {isDragging && (
           <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-indigo-600/10 backdrop-blur-sm border-2 border-dashed border-indigo-500 rounded-3xl animate-in fade-in zoom-in duration-200">
             <Plus className="w-12 h-12 text-indigo-500 mb-2 animate-bounce" />
-            <p className="text-lg font-semibold text-indigo-400">Drop to upload to {selectedCorpus?.name || 'corpus'}</p>
+            <p className="text-lg font-semibold text-indigo-400">Drop to upload to {activeCorpus?.name || 'corpus'}</p>
           </div>
         )}
 
@@ -377,9 +466,33 @@ export default function ChatInterface() {
         </form>
         
         <p className="text-[10px] text-slate-600 mt-3 text-center uppercase tracking-widest font-medium">
-          Powered by NEXUS Intelligence • {selectedCorpus?.name || 'No Corpus Selected'}
+          Powered by NEXUS Intelligence - {selectedWorkspace} - {activeCorpus?.name || 'No Corpus Selected'} - {activeDocuments.length} document(s) indexed
         </p>
       </div>
+
+      {activeSource && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-6">
+          <div className="w-full max-w-2xl rounded-2xl border border-slate-800 bg-slate-950 p-6 shadow-2xl">
+            <div className="mb-4 flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-lg font-bold text-white">{activeSource.name}</h2>
+                <p className="text-xs text-slate-500">{activeSource.page || 'Retrieved source evidence'}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveSource(null)}
+                className="rounded-lg p-2 text-slate-400 hover:bg-slate-900 hover:text-white"
+                aria-label="Close source"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="max-h-[50vh] overflow-y-auto rounded-xl border border-slate-800 bg-[#020617] p-4 text-sm leading-relaxed text-slate-300">
+              {activeSource.excerpt || 'No excerpt was returned for this source.'}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

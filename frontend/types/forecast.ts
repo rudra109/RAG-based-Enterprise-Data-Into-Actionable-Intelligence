@@ -19,4 +19,5 @@ export interface ForecastResponse {
   metrics: ForecastMetrics;
   explanation: string;
   forecast_start_date: string;
+  has_data?: boolean;
 }

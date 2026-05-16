@@ -1,21 +1,42 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { Suspense, useState } from 'react';
 import { Settings, User, Shield, Bell, Database, Globe } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
+import { useStore } from '@/store/useStore';
 
-export default function SettingsPage() {
+function normalizeTab(tab: string | null) {
+  if (!tab) return 'Profile';
+  return tab.charAt(0).toUpperCase() + tab.slice(1);
+}
+
+function SettingsPageContent() {
   const searchParams = useSearchParams();
-  const initialTab = searchParams.get('tab') || 'Profile';
-  const [activeTab, setActiveTab] = useState(initialTab);
+  const [activeTab, setActiveTab] = useState(() => normalizeTab(searchParams.get('tab')));
+  const [newWorkspaceName, setNewWorkspaceName] = useState('');
+  const [newWorkspaceType, setNewWorkspaceType] = useState('Team');
+  const { selectedWorkspace, addWorkspace } = useStore();
+  const isCreatingWorkspace = searchParams.get('mode') === 'create';
 
-  React.useEffect(() => {
-    const tab = searchParams.get('tab');
-    if (tab) setActiveTab(tab.charAt(0).toUpperCase() + tab.slice(1));
-  }, [searchParams]);
+  const handleCreateWorkspace = (event: React.FormEvent) => {
+    event.preventDefault();
+    const name = newWorkspaceName.trim();
+
+    if (!name) {
+      toast.error('Workspace name is required');
+      return;
+    }
+
+    addWorkspace({
+      id: `workspace-${Date.now()}`,
+      name,
+      type: newWorkspaceType,
+    });
+    setNewWorkspaceName('');
+    toast.success(`${name} workspace created`);
+  };
 
   const renderContent = () => {
     switch (activeTab) {
@@ -50,12 +71,48 @@ export default function SettingsPage() {
         return (
           <div className="space-y-6">
             <h2 className="text-xl font-bold text-white">Workspace Configuration</h2>
+            {isCreatingWorkspace && (
+              <form onSubmit={handleCreateWorkspace} className="rounded-2xl border border-indigo-500/20 bg-indigo-500/5 p-5 space-y-4">
+                <div>
+                  <h3 className="text-sm font-bold text-white">Create Workspace</h3>
+                  <p className="text-xs text-slate-500 mt-1">Add a separate area for team data, dashboards, pipelines, and anomalies.</p>
+                </div>
+                <div className="grid gap-4 md:grid-cols-[1fr_180px_auto] md:items-end">
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-slate-400">New Workspace Name</label>
+                    <input
+                      type="text"
+                      value={newWorkspaceName}
+                      onChange={(event) => setNewWorkspaceName(event.target.value)}
+                      placeholder="e.g. Finance Ops"
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-white focus:border-indigo-500 outline-none"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-slate-400">Type</label>
+                    <select
+                      value={newWorkspaceType}
+                      onChange={(event) => setNewWorkspaceType(event.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-white focus:border-indigo-500 outline-none"
+                    >
+                      <option>Team</option>
+                      <option>Department</option>
+                      <option>Client</option>
+                      <option>Sandbox</option>
+                    </select>
+                  </div>
+                  <Button type="submit" className="bg-indigo-600 hover:bg-indigo-500 text-white">
+                    Create
+                  </Button>
+                </div>
+              </form>
+            )}
             <div className="space-y-4">
               <div className="space-y-2">
                 <label className="text-sm font-medium text-slate-400">Workspace Name</label>
                 <input 
                   type="text" 
-                  defaultValue="Enterprise Intelligence"
+                  defaultValue={selectedWorkspace}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-white focus:border-indigo-500 outline-none"
                 />
               </div>
@@ -206,6 +263,14 @@ export default function SettingsPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function SettingsPage() {
+  return (
+    <Suspense fallback={<div className="p-8 text-slate-500">Loading settings...</div>}>
+      <SettingsPageContent />
+    </Suspense>
   );
 }
 

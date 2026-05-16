@@ -25,6 +25,9 @@ export default function RegisterPage() {
     setError(null);
 
     try {
+      if (!auth) {
+        throw new Error('Firebase authentication is not configured.');
+      }
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       await updateProfile(userCredential.user, { displayName: name });
       
@@ -46,7 +49,10 @@ export default function RegisterPage() {
     setLoading(true);
     setError(null);
     try {
-      const result = await signInWithPopup(auth, googleProvider);
+      if (!auth || !googleProvider) {
+        throw new Error('Firebase authentication is not configured.');
+      }
+      await signInWithPopup(auth, googleProvider);
       router.push('/');
     } catch (err: any) {
       setError(err.message);

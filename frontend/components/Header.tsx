@@ -30,7 +30,7 @@ export function Header() {
       await fetch('/v1/auth/session', { method: 'DELETE' });
       toast.success('Logged out successfully');
       router.push('/login');
-    } catch (err) {
+    } catch {
       toast.error('Failed to logout');
     }
   };

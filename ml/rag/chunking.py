@@ -18,7 +18,20 @@ import tiktoken
 from shared.config import get_settings
 
 settings = get_settings()
-_TOKENIZER = tiktoken.get_encoding("cl100k_base")
+
+
+class _FallbackTokenizer:
+    def encode(self, text: str) -> list[str]:
+        return re.findall(r"\S+", text)
+
+    def decode(self, tokens: list[str]) -> str:
+        return " ".join(tokens)
+
+
+try:
+    _TOKENIZER = tiktoken.get_encoding("cl100k_base")
+except Exception:
+    _TOKENIZER = _FallbackTokenizer()
 
 
 @dataclass

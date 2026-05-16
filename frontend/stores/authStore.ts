@@ -17,7 +17,9 @@ export const useAuth = create<AuthState>((set) => ({
   setLoading: (loading) => set({ loading }),
   signOut: async () => {
     try {
-      await firebaseSignOut(auth);
+      if (auth) {
+        await firebaseSignOut(auth);
+      }
       set({ user: null });
     } catch (error) {
       console.error('Error signing out:', error);
@@ -27,8 +29,13 @@ export const useAuth = create<AuthState>((set) => ({
 
 // Initialize listener
 if (typeof window !== 'undefined') {
-  onAuthStateChanged(auth, (user) => {
-    useAuth.getState().setUser(user);
+  if (auth) {
+    onAuthStateChanged(auth, (user) => {
+      useAuth.getState().setUser(user);
+      useAuth.getState().setLoading(false);
+    });
+  } else {
+    useAuth.getState().setUser(null);
     useAuth.getState().setLoading(false);
-  });
+  }
 }

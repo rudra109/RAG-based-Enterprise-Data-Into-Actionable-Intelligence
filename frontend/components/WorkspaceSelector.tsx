@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { Check, ChevronsUpDown, PlusCircle, Building2 } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useStore } from "@/store/useStore";
 import { cn } from "@/lib/utils";
 import {
@@ -13,16 +14,14 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Button } from "@/components/ui/button";
-
-const workspaces = [
-  { id: "1", name: "Enterprise Workspace", type: "Main" },
-  { id: "2", name: "R&D Lab", type: "Department" },
-  { id: "3", name: "Marketing Cloud", type: "Team" },
-];
 
 export function WorkspaceSelector() {
-  const { selectedWorkspace, setSelectedWorkspace } = useStore();
+  const router = useRouter();
+  const { workspaces, selectedWorkspace, setSelectedWorkspace, hydrateWorkspaceState } = useStore();
+
+  React.useEffect(() => {
+    hydrateWorkspaceState();
+  }, [hydrateWorkspaceState]);
 
   return (
     <DropdownMenu>
@@ -44,7 +43,7 @@ export function WorkspaceSelector() {
           {workspaces.map((workspace) => (
             <DropdownMenuItem
               key={workspace.id}
-              onSelect={() => setSelectedWorkspace(workspace.name)}
+              onClick={() => setSelectedWorkspace(workspace.name)}
               className="flex items-center justify-between hover:bg-slate-800 focus:bg-slate-800 cursor-pointer"
             >
               <div className="flex items-center gap-2">
@@ -58,7 +57,10 @@ export function WorkspaceSelector() {
           ))}
         </DropdownMenuGroup>
         <DropdownMenuSeparator className="bg-slate-700" />
-        <DropdownMenuItem className="flex items-center gap-2 hover:bg-slate-800 focus:bg-slate-800 cursor-pointer text-brand-400">
+        <DropdownMenuItem
+          onClick={() => router.push('/settings?tab=workspace&mode=create')}
+          className="flex items-center gap-2 hover:bg-slate-800 focus:bg-slate-800 cursor-pointer text-brand-400"
+        >
           <PlusCircle className="h-4 w-4" />
           <span>Create Workspace</span>
         </DropdownMenuItem>

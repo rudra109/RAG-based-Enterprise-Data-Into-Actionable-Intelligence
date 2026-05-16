@@ -1,10 +1,10 @@
 'use client';
 
-import React, { useEffect, useRef } from 'react';
+import React from 'react';
 import CytoscapeComponent from 'react-cytoscapejs';
 import cytoscape from 'cytoscape';
 import fcose from 'cytoscape-fcose';
-import { KGSubgraph, EntityType } from '@/types/kg';
+import { KGSubgraph } from '@/types/kg';
 
 // Register layout
 if (typeof window !== 'undefined') {

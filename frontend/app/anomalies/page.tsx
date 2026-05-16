@@ -1,14 +1,12 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import useSWR from 'swr';
 import { toast } from 'sonner';
-import { Toaster } from '@/components/ui/sonner';
 import { Slider } from '@/components/ui/slider';
 import { 
   ShieldAlert, 
   AlertTriangle, 
-  CheckCircle2, 
   Activity, 
   TrendingUp,
   Settings,
@@ -19,69 +17,110 @@ import AnomalyChart from '@/components/AnomalyChart';
 import AnomalyList from '@/components/AnomalyList';
 import { Anomaly, MetricPoint, AnomalySummary } from '@/types/anomaly';
 import { cn } from '@/lib/utils';
+import { useStore } from '@/store/useStore';
 
 const fetcher = (url: string) => fetch(url).then(res => res.json());
+const MOCK_METRIC_START = Date.UTC(2026, 0, 1, 0, 0, 0);
+const RANGE_CONFIG: Record<string, { points: number; stepMs: number; label: string }> = {
+  '1h': { points: 50, stepMs: 60_000, label: 'last hour' },
+  '6h': { points: 60, stepMs: 6 * 60_000, label: 'last 6 hours' },
+  '24h': { points: 72, stepMs: 20 * 60_000, label: 'last 24 hours' },
+  '7d': { points: 84, stepMs: 2 * 60 * 60_000, label: 'last 7 days' },
+};
+
+function createMetricData(workspace: string, range: string, sensitivity: number): MetricPoint[] {
+  const config = RANGE_CONFIG[range] || RANGE_CONFIG['1h'];
+  const workspaceOffset = workspace === 'R&D Lab' ? 24 : workspace === 'Marketing Cloud' ? 12 : 0;
+  const isCustomWorkspace = !['Enterprise Workspace', 'R&D Lab', 'Marketing Cloud'].includes(workspace);
+  const threshold = 170 - sensitivity * 0.45;
+
+  return Array.from({ length: config.points }).map((_, i) => {
+    const timestamp = new Date(MOCK_METRIC_START + i * config.stepMs).toISOString();
+    const spike = i % 17 === 0 || i % 29 === 0 ? 78 : 0;
+    const value = 96 + workspaceOffset + ((i * 17) % 45) - (i % 5) * 3 + spike;
+
+    return {
+      timestamp,
+      value,
+      isAnomaly: !isCustomWorkspace && value >= threshold,
+      anomalyId: value >= threshold ? `metric-${range}-${i}` : undefined,
+    };
+  });
+}
+
+const mockMetricData: MetricPoint[] = Array.from({ length: 50 }).map((_, i) => {
+  const timestamp = new Date(MOCK_METRIC_START + i * 60000).toISOString();
+  const isAnomaly = i % 11 === 0;
+  return {
+    timestamp,
+    value: 100 + ((i * 17) % 50) + (isAnomaly ? 80 : 0),
+    isAnomaly,
+    anomalyId: isAnomaly ? `a-${i}` : undefined
+  };
+});
 
 export default function AnomalyDashboard() {
-  const datasetId = 'default-stream'; // Example dataset ID
-  const { data: anomalies, mutate } = useSWR<Anomaly[]>(`/v1/anomaly/list?dataset_id=${datasetId}`, fetcher, {
-    refreshInterval: 30000, // 30 seconds refresh
-  });
-
+  const { selectedWorkspace } = useStore();
+  const datasetId = selectedWorkspace.toLowerCase().replace(/[^a-z0-9]+/g, '-');
   const [sensitivity, setSensitivity] = useState([50]); // 0 to 100
-  const [metricData, setMetricData] = useState<MetricPoint[]>([]);
+  const [timeRange, setTimeRange] = useState('1h');
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [acknowledgedIds, setAcknowledgedIds] = useState<string[]>([]);
+  const { data: anomalies, mutate } = useSWR<Anomaly[]>(
+    `/v1/anomaly/list?dataset_id=${datasetId}&workspace=${encodeURIComponent(selectedWorkspace)}`,
+    fetcher,
+    {
+    refreshInterval: 30000, // 30 seconds refresh
+    }
+  );
 
-  // WebSocket for notifications
-  useEffect(() => {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const socket = new WebSocket(`${protocol}//${window.location.host}/ws/events`);
+  const metricData = useMemo(() => {
+    if (selectedWorkspace === 'Enterprise Workspace' && timeRange === '1h' && sensitivity[0] === 50) {
+      return mockMetricData;
+    }
 
-    socket.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      if (data.type === 'NEW_ANOMALY') {
-        toast.error(`New Anomaly Detected: ${data.anomaly.metricName}`, {
-          description: `Score: ${(data.anomaly.score * 100).toFixed(1)}% | ${data.anomaly.severity.toUpperCase()}`,
-          icon: <ShieldAlert className="w-4 h-4 text-red-500" />,
-        });
-        mutate(); // Refresh data
-      }
-    };
+    return createMetricData(selectedWorkspace, timeRange, sensitivity[0]);
+  }, [selectedWorkspace, sensitivity, timeRange]);
 
-    return () => socket.close();
-  }, [mutate]);
-
-  // Mock metric data generation (since the request focuses on UI components)
-  useEffect(() => {
-    const points: MetricPoint[] = Array.from({ length: 50 }).map((_, i) => {
-      const timestamp = new Date(Date.now() - (50 - i) * 60000).toISOString();
-      const isAnomaly = Math.random() > 0.9;
-      return {
-        timestamp,
-        value: 100 + Math.random() * 50 + (isAnomaly ? 80 : 0),
-        isAnomaly,
-        anomalyId: isAnomaly ? `a-${i}` : undefined
-      };
-    });
-    setMetricData(points);
-  }, []);
+  const anomaliesWithLocalState = useMemo(() => (
+    (anomalies || []).map((anomaly) => ({
+      ...anomaly,
+      isAcknowledged: anomaly.isAcknowledged || acknowledgedIds.includes(anomaly.id),
+    }))
+  ), [acknowledgedIds, anomalies]);
 
   const filteredAnomalies = useMemo(() => {
-    if (!anomalies) return [];
-    return anomalies.filter(a => (a.score * 100) >= sensitivity[0]);
-  }, [anomalies, sensitivity]);
+    if (!anomaliesWithLocalState) return [];
+    return anomaliesWithLocalState
+      .filter(a => !a.isAcknowledged)
+      .filter(a => (a.score * 100) >= sensitivity[0]);
+  }, [anomaliesWithLocalState, sensitivity]);
 
   const summary: AnomalySummary = useMemo(() => {
-    if (!anomalies) return { total: 0, critical: 0, unacknowledged: 0, avgScore: 0 };
+    if (!anomaliesWithLocalState) return { total: 0, critical: 0, unacknowledged: 0, avgScore: 0 };
+    const visible = anomaliesWithLocalState.filter(a => (a.score * 100) >= sensitivity[0]);
     return {
-      total: anomalies.length,
-      critical: anomalies.filter(a => a.severity === 'critical').length,
-      unacknowledged: anomalies.filter(a => !a.isAcknowledged).length,
-      avgScore: anomalies.reduce((acc, curr) => acc + curr.score, 0) / (anomalies.length || 1),
+      total: visible.length,
+      critical: visible.filter(a => a.severity === 'critical' && !a.isAcknowledged).length,
+      unacknowledged: visible.filter(a => !a.isAcknowledged).length,
+      avgScore: visible.reduce((acc, curr) => acc + curr.score, 0) / (visible.length || 1),
     };
-  }, [anomalies]);
+  }, [anomaliesWithLocalState, sensitivity]);
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      await mutate();
+      toast.success('Anomaly data refreshed');
+    } catch {
+      toast.error('Failed to refresh anomaly data');
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
 
   const handleAcknowledge = async (id: string) => {
-    // Optimistic UI update
+    setAcknowledgedIds((prev) => prev.includes(id) ? prev : [...prev, id]);
     mutate(prev => prev?.map(a => a.id === id ? { ...a, isAcknowledged: true } : a), false);
     
     try {
@@ -89,16 +128,17 @@ export default function AnomalyDashboard() {
         method: 'PATCH',
       });
       if (!response.ok) throw new Error('Failed to acknowledge');
+      toast.success('Anomaly acknowledged');
     } catch (err) {
       console.error('Acknowledge error:', err);
-      mutate(); // Revert on error
+      setAcknowledgedIds((prev) => prev.filter((item) => item !== id));
+      mutate();
+      toast.error('Failed to acknowledge anomaly');
     }
   };
 
   return (
     <div className="p-8 max-w-[1600px] mx-auto space-y-8 animate-in fade-in duration-700 bg-[#020617] min-h-screen text-slate-200">
-      <Toaster position="top-right" theme="dark" richColors />
-      
       {/* Header */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
         <div>
@@ -109,7 +149,7 @@ export default function AnomalyDashboard() {
             <h1 className="text-3xl font-bold text-white tracking-tight">Anomaly Detection</h1>
           </div>
           <p className="text-slate-500 max-w-lg">
-            Real-time monitoring of system metrics with automated anomaly detection and alerting.
+            Real-time monitoring of {selectedWorkspace} metrics with automated anomaly detection and alerting.
           </p>
         </div>
 
@@ -121,18 +161,24 @@ export default function AnomalyDashboard() {
             </div>
             <Slider
               value={sensitivity}
-              onValueChange={(val) => setSensitivity(Array.isArray(val) ? val : [val])}
+              onValueChange={(val) => {
+                const next = Array.isArray(val) ? val : [val];
+                setSensitivity(next);
+              }}
               max={100}
               step={1}
               className="w-48"
+              aria-label="Anomaly sensitivity"
             />
           </div>
           <div className="w-px h-10 bg-slate-800 mx-2" />
           <button 
-            onClick={() => mutate()}
+            onClick={handleRefresh}
             className="p-3 hover:bg-slate-800 rounded-xl transition-colors text-slate-400 hover:text-white"
+            aria-label="Refresh anomalies"
+            disabled={isRefreshing}
           >
-            <RefreshCw className="w-5 h-5" />
+            <RefreshCw className={cn("w-5 h-5", isRefreshing && "animate-spin")} />
           </button>
         </div>
       </div>
@@ -143,7 +189,7 @@ export default function AnomalyDashboard() {
           label="Total Anomalies" 
           value={summary.total} 
           icon={<AlertTriangle className="w-5 h-5 text-indigo-500" />}
-          trend="+12% vs last hour"
+          trend={`${RANGE_CONFIG[timeRange]?.label || 'selected range'}`}
         />
         <SummaryCard 
           label="Critical Issues" 
@@ -178,8 +224,11 @@ export default function AnomalyDashboard() {
               {['1h', '6h', '24h', '7d'].map(t => (
                 <button key={t} className={cn(
                   "px-3 py-1 rounded-lg text-xs font-bold transition-all",
-                  t === '1h' ? "bg-indigo-600 text-white" : "text-slate-500 hover:text-white hover:bg-slate-800"
-                )}>{t}</button>
+                  timeRange === t ? "bg-indigo-600 text-white" : "text-slate-500 hover:text-white hover:bg-slate-800"
+                )}
+                onClick={() => setTimeRange(t)}
+                aria-pressed={timeRange === t}
+                >{t}</button>
               ))}
             </div>
           </div>

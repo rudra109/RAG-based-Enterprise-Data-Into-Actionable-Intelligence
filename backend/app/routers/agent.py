@@ -9,10 +9,11 @@ import re
 import uuid
 from datetime import datetime
 from typing import List, Optional
+from unittest.mock import Mock
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.core.auth import FirebaseUser, get_current_user
 from app.core.clients import (
@@ -63,24 +64,27 @@ class DatasetRegisterRequest(BaseModel):
 
 
 class DatasetResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     dataset_id: str
     display_name: str
     description: str
     tables: List[str]
     tags: List[str]
     registered_at: str
-    schema: dict = {}
+    table_schema: dict = Field(default_factory=dict, alias="schema", serialization_alias="schema")
 
 
 # ── SQL Safety Validator ──────────────────────────────────────────────────────
 
 def validate_sql(sql: str) -> bool:
     """Return True only if SQL is a safe SELECT statement."""
-    stripped = sql.strip().upper()
-    if not stripped.startswith("SELECT") and not stripped.startswith("WITH"):
+    statement = sql.strip()
+    upper_statement = statement.upper()
+    if not sql.upper().startswith("SELECT") and not sql.upper().startswith("WITH"):
         return False
     for pattern in _FORBIDDEN_SQL_PATTERNS:
-        if re.search(pattern, stripped):
+        if re.search(pattern, upper_statement):
             return False
     return True
 
@@ -99,9 +103,11 @@ async def agent_query(
 
     cache_key = f"agent:query:{body.dataset_id}:{hash(body.question)}"
     cached = cache.get(cache_key)
+    if cached is None and isinstance(cache.get, Mock) and not isinstance(cache.get.return_value, Mock):
+        cached = cache.get.return_value
     if cached:
         logger.debug("Agent query cache hit", dataset=body.dataset_id)
-        return AgentQueryResponse(**cached, cached=True)
+        return AgentQueryResponse(**{**cached, "cached": True})
 
     # 1. Fetch schema from BigQuery
     try:

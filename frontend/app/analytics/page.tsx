@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { 
   Sparkles, 
   Send, 
@@ -21,11 +21,12 @@ import ChartRenderer from '@/components/ChartRenderer';
 import DataTable from '@/components/DataTable';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn } from '@/lib/utils';
+import { useStore } from '@/store/useStore';
 
-const EXAMPLES = [
-  'Show me total sales by region last quarter',
+const DEFAULT_EXAMPLES = [
+  'Show records by connected source',
   'What are the top 5 performing pipelines?',
-  'Analyze error rates across all workspaces',
+  'Analyze error rates for this workspace',
   'Predict resource usage for the next 30 days',
   'Show monthly user growth since January'
 ];
@@ -35,6 +36,24 @@ export default function AnalyticsAgent() {
   const [isLoading, setIsLoading] = useState(false);
   const [currentResult, setCurrentResult] = useState<QueryResult | null>(null);
   const { history, addHistoryItem, clearHistory } = useAgentStore();
+  const { selectedWorkspace, workspaceData } = useStore();
+  const workspaceHistory = useMemo(
+    () => history.filter((item) => item.workspace === selectedWorkspace),
+    [history, selectedWorkspace]
+  );
+  const examples = useMemo(() => {
+    if (selectedWorkspace === 'Enterprise Workspace') {
+      return [
+        'Show me total sales by region last quarter',
+        'What are the top 5 performing pipelines?',
+        'Analyze error rates across all workspaces',
+        'Predict resource usage for the next 30 days',
+        'Show monthly user growth since January',
+      ];
+    }
+
+    return DEFAULT_EXAMPLES;
+  }, [selectedWorkspace]);
 
   const handleQuery = async (e?: React.FormEvent, customQuery?: string) => {
     e?.preventDefault();
@@ -46,7 +65,11 @@ export default function AnalyticsAgent() {
       const response = await fetch('/v1/agent/query', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: finalQuery }),
+        body: JSON.stringify({
+          query: finalQuery,
+          workspace: selectedWorkspace,
+          workspaceStats: workspaceData[selectedWorkspace] || null,
+        }),
       });
 
       if (!response.ok) throw new Error('Query failed');
@@ -55,6 +78,7 @@ export default function AnalyticsAgent() {
       const result: QueryResult = {
         id: Date.now().toString(),
         query: finalQuery,
+        workspace: selectedWorkspace,
         sql: data.sql,
         explanation: data.explanation,
         chartSuggestion: data.chart_suggestion,
@@ -84,7 +108,7 @@ export default function AnalyticsAgent() {
               Analytics Agent
             </h1>
             <p className="text-slate-500 mt-2 text-lg">
-              Ask any question about your data using natural language.
+              Ask questions about {selectedWorkspace} data using natural language.
             </p>
           </div>
 
@@ -114,7 +138,7 @@ export default function AnalyticsAgent() {
 
             {/* Example Chips */}
             <div className="flex flex-wrap gap-2 mt-4">
-              {EXAMPLES.map((example) => (
+              {examples.map((example) => (
                 <button
                   key={example}
                   onClick={() => handleQuery(undefined, example)}
@@ -165,6 +189,7 @@ export default function AnalyticsAgent() {
                       <SyntaxHighlighter
                         language="sql"
                         style={vscDarkPlus}
+                        wrapLongLines
                         customStyle={{
                           margin: 0,
                           padding: '1.5rem',
@@ -206,7 +231,7 @@ export default function AnalyticsAgent() {
             <HistoryIcon className="w-5 h-5 text-slate-500" />
             History
           </h2>
-          {history.length > 0 && (
+          {workspaceHistory.length > 0 && (
             <Button variant="ghost" size="icon" onClick={clearHistory} className="text-slate-500 hover:text-red-400">
               <Trash2 className="w-4 h-4" />
             </Button>
@@ -214,7 +239,7 @@ export default function AnalyticsAgent() {
         </div>
         <ScrollArea className="flex-1">
           <div className="p-4 space-y-2">
-            {history.map((item) => (
+            {workspaceHistory.map((item) => (
               <button
                 key={item.id}
                 onClick={() => setCurrentResult(item)}
@@ -240,9 +265,9 @@ export default function AnalyticsAgent() {
                 </div>
               </button>
             ))}
-            {history.length === 0 && (
+            {workspaceHistory.length === 0 && (
               <div className="py-20 text-center text-slate-600 text-sm">
-                No recent queries
+                No recent queries for {selectedWorkspace}
               </div>
             )}
           </div>

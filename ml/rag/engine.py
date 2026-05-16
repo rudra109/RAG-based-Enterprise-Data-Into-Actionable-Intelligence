@@ -137,7 +137,10 @@ class EnterpriseRAGEngine:
             logger.warning("Retrieval skipped — endpoint not configured")
             return []
 
-        query_emb = self.embed_chunks([question])[0]
+        embeddings = self.embed_chunks([question])
+        if not embeddings:
+            return []
+        query_emb = embeddings[0]
 
         neighbors = self._index_endpoint.find_neighbors(
             deployed_index_id=f"corpus_{corpus_id}",

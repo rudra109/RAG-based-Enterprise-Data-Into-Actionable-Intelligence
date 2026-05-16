@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { 
   signInWithRedirect, 
@@ -20,28 +20,11 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (user && !authLoading) {
-      router.push('/');
-    }
-
-    // Handle the result of the redirect when the page loads back
-    const handleRedirectResult = async () => {
-      try {
-        const result = await getRedirectResult(auth);
-        if (result) {
-          await handleSessionCreation(result.user);
-        }
-      } catch (err: any) {
-        setError(err.message);
-      }
-    };
-    
-    handleRedirectResult();
-  }, [user, authLoading, router]);
-
-  const handleSessionCreation = async (firebaseUser: any) => {
+  const handleSessionCreation = useCallback(async (firebaseUser: any) => {
     try {
+      if (!auth) {
+        throw new Error('Firebase authentication is not configured.');
+      }
       const idToken = await getIdToken(firebaseUser);
       const response = await fetch('/v1/auth/session', {
         method: 'POST',
@@ -60,12 +43,35 @@ export default function LoginPage() {
       setError(err.message || 'An error occurred during session creation');
       setLoading(false);
     }
-  };
+  }, [router]);
+
+  useEffect(() => {
+    if (user && !authLoading) {
+      router.push('/');
+    }
+
+    const handleRedirectResult = async () => {
+      try {
+        if (!auth) return;
+        const result = await getRedirectResult(auth);
+        if (result) {
+          await handleSessionCreation(result.user);
+        }
+      } catch (err: any) {
+        setError(err.message);
+      }
+    };
+    
+    handleRedirectResult();
+  }, [user, authLoading, router, handleSessionCreation]);
 
   const handleGoogleSignIn = async () => {
     setLoading(true);
     setError(null);
     try {
+      if (!auth || !googleProvider) {
+        throw new Error('Firebase authentication is not configured.');
+      }
       await signInWithRedirect(auth, googleProvider);
     } catch (err: any) {
       setError(err.message);
@@ -78,6 +84,9 @@ export default function LoginPage() {
     setLoading(true);
     setError(null);
     try {
+      if (!auth) {
+        throw new Error('Firebase authentication is not configured.');
+      }
       const result = await signInWithEmailAndPassword(auth, email, password);
       await handleSessionCreation(result.user);
     } catch (err: any) {
@@ -187,7 +196,7 @@ export default function LoginPage() {
           </form>
 
           <p className="mt-8 text-center text-sm text-slate-500">
-            Don't have an account?{' '}
+            Don&apos;t have an account?{' '}
             <a href="/register" className="text-indigo-400 hover:text-indigo-300 font-medium transition-colors">
               Create one
             </a>

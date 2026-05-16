@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useSyncExternalStore } from 'react';
 import {
   BarChart,
   Bar,
@@ -24,8 +24,13 @@ interface ChartRendererProps {
 }
 
 const COLORS = ['#6366f1', '#a855f7', '#ec4899', '#f43f5e', '#f59e0b', '#10b981', '#06b6d4'];
+const subscribe = () => () => {};
+const getClientSnapshot = () => true;
+const getServerSnapshot = () => false;
 
 export default function ChartRenderer({ type, data }: ChartRendererProps) {
+  const mounted = useSyncExternalStore(subscribe, getClientSnapshot, getServerSnapshot);
+
   if (!data || data.length === 0) return null;
 
   // Dynamically find keys (excluding common ones like 'id', 'timestamp')
@@ -138,9 +143,11 @@ export default function ChartRenderer({ type, data }: ChartRendererProps) {
 
   return (
     <div className="w-full h-[350px] mt-6 bg-slate-900/30 p-4 rounded-2xl border border-slate-800/50 shadow-inner">
-      <ResponsiveContainer width="100%" height="100%">
-        {renderChart() || <div>No chart data available</div>}
-      </ResponsiveContainer>
+      {mounted && (
+        <ResponsiveContainer width="100%" height="100%">
+          {renderChart() || <div>No chart data available</div>}
+        </ResponsiveContainer>
+      )}
     </div>
   );
 }

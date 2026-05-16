@@ -77,16 +77,16 @@ class SQLSafetyValidator:
         if not (clean.startswith("SELECT") or clean.startswith("WITH")):
             return False, "Only SELECT queries are allowed"
 
-        # Check for forbidden keywords (word boundary match)
-        for kw in self.FORBIDDEN_KEYWORDS:
-            if re.search(rf"\b{kw}\b", clean):
-                return False, f"Forbidden keyword detected: {kw}"
-
         # Check for semicolon injection
         # Allow trailing semicolon only
         clean_stripped = clean.rstrip(";").strip()
         if ";" in clean_stripped:
             return False, "Multiple statements detected"
+
+        # Check for forbidden keywords (word boundary match)
+        for kw in self.FORBIDDEN_KEYWORDS:
+            if re.search(rf"\b{kw}\b", clean):
+                return False, f"Forbidden keyword detected: {kw}"
 
         # Check for comment-based injection
         if "--" in sql and "/*" in sql:

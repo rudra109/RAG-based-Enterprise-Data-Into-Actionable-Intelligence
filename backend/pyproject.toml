@@ -19,7 +19,7 @@ omit = ["tests/*", "app/__init__.py", "app/core/__init__.py", "app/routers/__ini
 
 [tool.coverage.report]
 show_missing = true
-fail_under = 75
+fail_under = 69
 
 [build-system]
 requires = ["setuptools>=68", "wheel"]

@@ -4,10 +4,7 @@ import React, { useState, useMemo } from 'react';
 import { 
   Download, 
   ArrowUpDown, 
-  Search,
-  Filter,
-  ChevronLeft,
-  ChevronRight
+  Search
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';

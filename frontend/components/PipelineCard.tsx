@@ -4,7 +4,7 @@ import React from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Pipeline, PipelineStatus } from '@/types/pipeline';
 import { cn } from '@/lib/utils';
-import { Play, CheckCircle2, XCircle, Clock, MoreHorizontal } from 'lucide-react';
+import { Play, CheckCircle2, XCircle, Clock } from 'lucide-react';
 
 interface PipelineCardProps {
   pipeline: Pipeline;

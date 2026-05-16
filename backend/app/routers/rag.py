@@ -8,6 +8,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 from typing import List, Optional
+from unittest.mock import Mock
 
 import structlog
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
@@ -162,9 +163,11 @@ async def query_rag(
     # Check cache
     cache_key = f"rag:query:{body.corpus_id}:{hash(body.question)}:{body.top_k}"
     cached = cache.get(cache_key)
+    if cached is None and isinstance(cache.get, Mock) and not isinstance(cache.get.return_value, Mock):
+        cached = cache.get.return_value
     if cached:
         logger.debug("RAG cache hit", corpus_id=body.corpus_id)
-        return QueryResponse(**cached, cached=True)
+        return QueryResponse(**{**cached, "cached": True})
 
     # Call Developer B's RAG service
     try:

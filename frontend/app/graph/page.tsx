@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useRef } from 'react';
 import useSWR from 'swr';
 import { 
   Network, 
@@ -11,7 +11,6 @@ import {
   Download, 
   FileText, 
   ExternalLink,
-  ChevronRight,
   Info,
   Database,
   Share2
@@ -27,17 +26,19 @@ import {
 import KnowledgeGraph from '@/components/KnowledgeGraph';
 import { KGSubgraph, GraphNode } from '@/types/kg';
 import { cn } from '@/lib/utils';
+import { useStore } from '@/store/useStore';
 
 const fetcher = (url: string) => fetch(url).then(res => res.json());
 
 export default function KnowledgeGraphViewer() {
+  const { selectedWorkspace } = useStore();
   const [query, setQuery] = useState('');
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const cyRef = useRef<any>(null);
 
   const { data: subgraph, mutate, isLoading } = useSWR<KGSubgraph>(
-    '/v1/kg/subgraph?graph_id=main', 
+    `/v1/kg/subgraph?graph_id=${encodeURIComponent(selectedWorkspace)}`,
     fetcher
   );
 
@@ -49,7 +50,7 @@ export default function KnowledgeGraphViewer() {
       const response = await fetch('/v1/kg/query', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query, mode: 'nl' }),
+        body: JSON.stringify({ query, mode: 'nl', workspace: selectedWorkspace }),
       });
       if (response.ok) {
         const newData = await response.json();
@@ -80,7 +81,7 @@ export default function KnowledgeGraphViewer() {
           </div>
           <div>
             <h1 className="text-xl font-bold text-white tracking-tight">Knowledge Explorer</h1>
-            <p className="text-[10px] text-slate-500 uppercase tracking-widest font-bold">Semantic Relationship Graph</p>
+            <p className="text-[10px] text-slate-500 uppercase tracking-widest font-bold">{selectedWorkspace} Relationship Graph</p>
           </div>
         </div>
 

@@ -1,30 +1,43 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import useSWR from 'swr';
 import { 
   TrendingUp, 
   Sparkles, 
-  Calendar, 
   BarChart3, 
   Info,
-  ChevronRight,
   Clock,
   LayoutDashboard,
   Target
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
 import ForecastChart from '@/components/ForecastChart';
 import { ForecastResponse } from '@/types/forecast';
 import { cn } from '@/lib/utils';
+import { useStore } from '@/store/useStore';
 
 const fetcher = (url: string) => fetch(url).then(res => res.json());
 
 export default function ForecastDashboard() {
+  const { selectedWorkspace, workspaceData } = useStore();
   const [horizon, setHorizon] = useState('30d');
-  const forecastId = 'main-series'; // Example ID
-  const { data, error, isLoading } = useSWR<ForecastResponse>(`/v1/forecast/${forecastId}?horizon=${horizon}`, fetcher);
+  const forecastId = selectedWorkspace.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+  const selectedWorkspaceData = workspaceData[selectedWorkspace];
+  const forecastUrl = useMemo(() => {
+    const params = new URLSearchParams({
+      horizon,
+      workspace: selectedWorkspace,
+      dataPoints: String(selectedWorkspaceData?.dataPoints || 0),
+      sources: String(selectedWorkspaceData?.sources?.length || 0),
+    });
+
+    return `/v1/forecast/${forecastId}?${params.toString()}`;
+  }, [forecastId, horizon, selectedWorkspace, selectedWorkspaceData]);
+  const { data, error, isLoading } = useSWR<ForecastResponse>(
+    forecastUrl,
+    fetcher
+  );
 
   const horizons = [
     { label: '7d', value: '7d' },
@@ -52,7 +65,7 @@ export default function ForecastDashboard() {
             <h1 className="text-3xl font-bold text-white tracking-tight">Demand Forecasting</h1>
           </div>
           <p className="text-slate-500 max-w-lg">
-            Predictive analytics powered by Gemini to anticipate future resource requirements and market trends.
+            Predictive analytics for {selectedWorkspace} resource requirements and market trends.
           </p>
         </div>
 
@@ -61,6 +74,7 @@ export default function ForecastDashboard() {
             <button
               key={h.value}
               onClick={() => setHorizon(h.value)}
+              aria-pressed={horizon === h.value}
               className={cn(
                 "px-4 py-2 rounded-lg text-sm font-bold transition-all",
                 horizon === h.value 
@@ -81,18 +95,21 @@ export default function ForecastDashboard() {
           value={data?.metrics.mae} 
           icon={<Target className="w-4 h-4 text-blue-400" />}
           badge="Precise"
+          testId="forecast-mae-value"
         />
         <MetricCard 
           label="Root Mean Square Error (RMSE)" 
           value={data?.metrics.rmse} 
           icon={<BarChart3 className="w-4 h-4 text-purple-400" />}
           badge="Stable"
+          testId="forecast-rmse-value"
         />
         <MetricCard 
           label="Mean Absolute % Error (MAPE)" 
-          value={`${data?.metrics.mape}%`} 
+          value={data ? `${data.metrics.mape}%` : undefined} 
           icon={<TrendingUp className="w-4 h-4 text-green-400" />}
           badge="High Accuracy"
+          testId="forecast-mape-value"
         />
       </div>
 
@@ -127,6 +144,7 @@ export default function ForecastDashboard() {
           <ForecastChart 
             data={data.points} 
             forecastStartDate={data.forecast_start_date} 
+            hasData={data.has_data !== false}
           />
         )}
       </div>
@@ -162,7 +180,7 @@ export default function ForecastDashboard() {
   );
 }
 
-function MetricCard({ label, value, icon, badge }: any) {
+function MetricCard({ label, value, icon, badge, testId }: any) {
   return (
     <div className="bg-slate-900/50 border border-slate-800 rounded-2xl p-5 hover:bg-slate-900 transition-all group">
       <div className="flex justify-between items-start mb-4">
@@ -175,7 +193,7 @@ function MetricCard({ label, value, icon, badge }: any) {
       </div>
       <div>
         <div className="text-[10px] font-bold text-slate-600 uppercase tracking-widest mb-1">{label}</div>
-        <div className="text-2xl font-bold text-white tabular-nums">
+        <div className="text-2xl font-bold text-white tabular-nums" data-testid={testId}>
           {value ?? <div className="h-8 w-20 bg-slate-800 animate-pulse rounded" />}
         </div>
       </div>

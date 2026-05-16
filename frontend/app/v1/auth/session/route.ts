@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 
 export async function POST(req: Request) {
-  const { idToken } = await req.json();
+  await req.json();
   
   // Simulate session creation
   const response = NextResponse.json({ success: true });
