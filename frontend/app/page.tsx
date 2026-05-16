@@ -131,10 +131,9 @@ function createCustomDashboard(workspace: string, dataPoints = 0, activeQueries 
 }
 
 export default function Home() {
-  const { selectedWorkspace, workspaceData, addWorkspaceData } = useStore();
-  const [sourceName, setSourceName] = useState('');
-  const [sourceType, setSourceType] = useState('CSV Upload');
-  const [recordCount, setRecordCount] = useState('1000');
+  const { selectedWorkspace, workspaceData, addWorkspaceData, addRagDocuments } = useStore();
+  const [file, setFile] = useState<File | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
   const isCustomWorkspace = !(selectedWorkspace in workspaceDashboards);
   const selectedWorkspaceData = workspaceData[selectedWorkspace];
   const dashboard = workspaceDashboards[(selectedWorkspace as WorkspaceName)] || createCustomDashboard(
@@ -145,18 +144,85 @@ export default function Home() {
   );
   const criticalCount = dashboard.anomalies.filter((anomaly) => anomaly.severity === "critical").length;
 
-  const handleAddData = (event: FormEvent) => {
+  const handleAddData = async (event: FormEvent) => {
     event.preventDefault();
-    const records = Number(recordCount);
-    if (!sourceName.trim() || !Number.isFinite(records) || records <= 0) return;
+    if (!file) return;
 
-    addWorkspaceData(selectedWorkspace, {
-      name: sourceName.trim(),
-      type: sourceType,
-      records: Math.round(records),
-    });
-    setSourceName('');
-    setRecordCount('1000');
+    setIsUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("corpus_id", selectedWorkspace);
+
+      // Post the file to the backend's ingest endpoint
+      const res = await fetch("/v1/rag/ingest", {
+        method: "POST",
+        body: formData,
+      });
+
+      if (res.ok) {
+        const ingestData = await res.json();
+        const doc_id = ingestData.doc_id;
+
+        addWorkspaceData(selectedWorkspace, {
+          name: file.name,
+          type: "File Upload",
+          records: 1, 
+        });
+        
+        let fileContent = '';
+        // Performance Optimization: Only read/sync files smaller than 1MB to the browser's RAG store.
+        // Large "Big Ass" CSVs can freeze the UI if stored entirely in memory.
+        if (file.size < 1 * 1024 * 1024) {
+          try {
+            fileContent = await file.text();
+          } catch (e) {
+            fileContent = 'Could not read file content.';
+          }
+        } else {
+          fileContent = `File too large for browser RAG preview (${(file.size / 1024 / 1024).toFixed(2)} MB). Use the Analytics Agent to query this data mathematically.`;
+        }
+        
+        // Automatically sync the uploaded file to the RAG Chat
+        addRagDocuments(selectedWorkspace, [{
+          id: doc_id, // Use the real ID from the backend
+          workspace: selectedWorkspace,
+          corpusId: 'custom-1',
+          corpusName: `${selectedWorkspace} Documents`,
+          name: file.name,
+          type: file.type || 'text/csv',
+          size: file.size,
+          content: fileContent,
+          uploadedAt: new Date().toISOString(),
+        }]);
+
+        // Trigger Knowledge Graph Extraction for the new document
+        try {
+          await fetch("/v1/kg/extract", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              document_ids: [doc_id],
+              graph_id: selectedWorkspace,
+              doc_texts: { [doc_id]: fileContent }
+            })
+          });
+          console.log("Knowledge Graph extraction triggered for", doc_id);
+        } catch (kgErr) {
+          console.error("Failed to trigger KG extraction:", kgErr);
+        }
+
+        setFile(null);
+      } else {
+        console.error("Upload failed");
+        alert("Upload failed. Ensure backend and ML services are running.");
+      }
+    } catch (error) {
+      console.error(error);
+      alert("Error uploading file.");
+    } finally {
+      setIsUploading(false);
+    }
   };
 
   return (
@@ -198,32 +264,19 @@ export default function Home() {
                 Register a data source here. It updates this workspace dashboard, creates a pipeline entry, and gives analytics something to analyze.
               </p>
             </div>
-            <form onSubmit={handleAddData} className="grid w-full gap-3 md:grid-cols-[1fr_150px_140px_auto] lg:max-w-3xl">
+            <form onSubmit={handleAddData} className="grid w-full gap-3 md:grid-cols-[1fr_auto] lg:max-w-xl">
               <input
-                value={sourceName}
-                onChange={(event) => setSourceName(event.target.value)}
-                placeholder="Source name or file name"
-                className="rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-sm text-white outline-none focus:border-indigo-500"
+                type="file"
+                accept=".csv,.txt,.json,.pdf,.docx"
+                onChange={(e) => setFile(e.target.files?.[0] || null)}
+                className="rounded-xl border border-slate-800 bg-slate-950 px-4 py-2.5 text-sm text-white outline-none focus:border-indigo-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-600/20 file:text-indigo-400 hover:file:bg-indigo-600/30 cursor-pointer"
               />
-              <select
-                value={sourceType}
-                onChange={(event) => setSourceType(event.target.value)}
-                className="rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-sm text-white outline-none focus:border-indigo-500"
+              <button 
+                type="submit"
+                disabled={!file || isUploading}
+                className="rounded-xl bg-indigo-600 px-5 py-3 text-sm font-bold text-white hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                <option>CSV Upload</option>
-                <option>JSON Import</option>
-                <option>Database Table</option>
-                <option>Document Set</option>
-              </select>
-              <input
-                value={recordCount}
-                onChange={(event) => setRecordCount(event.target.value)}
-                type="number"
-                min="1"
-                className="rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-sm text-white outline-none focus:border-indigo-500"
-              />
-              <button className="rounded-xl bg-indigo-600 px-5 py-3 text-sm font-bold text-white hover:bg-indigo-500">
-                Add Data
+                {isUploading ? "Uploading..." : "Upload File"}
               </button>
             </form>
           </div>

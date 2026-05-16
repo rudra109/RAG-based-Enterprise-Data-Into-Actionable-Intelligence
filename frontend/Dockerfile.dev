@@ -1,0 +1,16 @@
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Install dependencies first for caching
+COPY package*.json ./
+RUN npm install
+
+# Copy all files
+COPY . .
+
+# Expose the port configured in docker-compose.yml
+EXPOSE 3001
+
+# Run the Next.js development server on port 3001
+CMD ["npm", "run", "dev", "--", "-p", "3001"]

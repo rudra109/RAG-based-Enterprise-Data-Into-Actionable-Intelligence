@@ -26,6 +26,7 @@ router = APIRouter(prefix="/v1/kg", tags=["Knowledge Graph"])
 class KGExtractRequest(BaseModel):
     document_ids: List[str]
     graph_id: str
+    doc_texts: Optional[dict[str, str]] = None
 
 
 class KGExtractResponse(BaseModel):
@@ -125,7 +126,7 @@ async def extract_kg(
 
     # Trigger Developer B's KG extraction pipeline
     try:
-        result = await ml.kg_extract(body.document_ids, body.graph_id)
+        result = await ml.kg_extract(body.document_ids, body.graph_id, doc_texts=body.doc_texts)
     except Exception as e:
         logger.error("KG extraction service error", error=str(e))
         raise HTTPException(status_code=503, detail=f"KG service unavailable: {e}")

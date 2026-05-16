@@ -1,0 +1,31 @@
+date,region,product_category,revenue,demand,marketing_spend,conversion_rate
+2023-01-01,North America,Electronics,45000,1200,5000,0.035
+2023-01-02,North America,Electronics,47000,1250,5100,0.036
+2023-01-03,North America,Electronics,46500,1230,5000,0.035
+2023-01-04,North America,Electronics,48000,1300,5200,0.037
+2023-01-05,North America,Electronics,49000,1350,5200,0.038
+2023-01-06,North America,Electronics,51000,1400,5500,0.040
+2023-01-07,North America,Electronics,52000,1450,5500,0.041
+2023-01-08,North America,Electronics,120000,4500,8000,0.095
+2023-01-09,North America,Electronics,53000,1480,5600,0.042
+2023-01-10,North America,Electronics,52500,1460,5600,0.041
+2023-01-11,North America,Electronics,54000,1500,5800,0.043
+2023-01-12,North America,Electronics,55000,1520,5800,0.044
+2023-01-13,North America,Electronics,56000,1550,6000,0.045
+2023-01-14,North America,Electronics,54500,1510,5900,0.043
+2023-01-15,North America,Electronics,8000,200,4000,0.005
+2023-01-16,North America,Electronics,57000,1600,6100,0.046
+2023-01-17,North America,Electronics,58000,1620,6200,0.047
+2023-01-18,North America,Electronics,59000,1650,6200,0.048
+2023-01-19,North America,Electronics,60000,1680,6300,0.049
+2023-01-20,North America,Electronics,61000,1700,6400,0.050
+2023-01-21,Europe,Software,32000,800,3000,0.025
+2023-01-22,Europe,Software,32500,810,3100,0.026
+2023-01-23,Europe,Software,33000,830,3100,0.026
+2023-01-24,Europe,Software,34000,850,3200,0.027
+2023-01-25,Europe,Software,33500,840,3200,0.027
+2023-01-26,Europe,Software,35000,880,3300,0.028
+2023-01-27,Europe,Software,36000,900,3400,0.029
+2023-01-28,Europe,Software,35500,890,3400,0.029
+2023-01-29,Europe,Software,37000,930,3500,0.030
+2023-01-30,Europe,Software,38000,950,3600,0.031

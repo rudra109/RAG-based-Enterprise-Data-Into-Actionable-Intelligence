@@ -359,6 +359,48 @@ Document text (first 4000 chars):
         except Exception as e:
             logger.error("BigQuery KG write failed", error=str(e))
 
+    def _extract_from_csv_structure(self, text: str, doc_id: str, graph_id: str) -> tuple[list[KGNode], list[KGEdge]]:
+        """Simple structural extraction for CSV files to ensure the graph isn't empty."""
+        lines = text.strip().split('\n')
+        if not lines or ',' not in lines[0]:
+            return [], []
+        
+        headers = [h.strip() for h in lines[0].split(',') if h.strip()]
+        nodes: list[KGNode] = []
+        edges: list[KGEdge] = []
+        
+        # Dataset Node
+        dataset_id = str(uuid.uuid4())
+        nodes.append(KGNode(
+            node_id=dataset_id,
+            entity_type="PRODUCT",
+            entity_name=f"Dataset Source",
+            properties={"type": "CSV", "column_count": len(headers)},
+            source_doc_id=doc_id,
+            graph_id=graph_id
+        ))
+        
+        # Column Nodes
+        for h in headers:
+            col_id = str(uuid.uuid4())
+            nodes.append(KGNode(
+                node_id=col_id,
+                entity_type="CONCEPT",
+                entity_name=h,
+                properties={"context": "Data Metric"},
+                source_doc_id=doc_id,
+                graph_id=graph_id
+            ))
+            edges.append(KGEdge(
+                edge_id=str(uuid.uuid4()),
+                source_node_id=dataset_id,
+                target_node_id=col_id,
+                relationship_type="CONTAINS_METRIC",
+                graph_id=graph_id
+            ))
+            
+        return nodes, edges
+
     # ── Main Extraction Entry Point ───────────────────────────────────────────
 
     def extract_from_document(self, doc_text: str, doc_id: str,
@@ -375,12 +417,15 @@ Document text (first 4000 chars):
         # Step 2: Gemini Pro
         gemini_nodes, gemini_edges = self._extract_with_gemini(doc_text, doc_id, graph_id)
 
-        # Step 3: Merge
+        # Step 3: CSV Structure Fallback (if it's a CSV)
+        csv_nodes, csv_edges = self._extract_from_csv_structure(doc_text, doc_id, graph_id)
+
+        # Step 4: Merge
         merged_nodes, merged_edges = self._merge_extractions(
-            nlp_nodes, gemini_nodes, gemini_edges
+            nlp_nodes + csv_nodes, gemini_nodes, gemini_edges + csv_edges
         )
 
-        # Step 4: Entity resolution
+        # Step 5: Entity resolution
         resolved_nodes, id_map = self._resolve_entities(merged_nodes)
 
         # Remap edge IDs after resolution
@@ -403,7 +448,7 @@ Document text (first 4000 chars):
             e for e in resolved_edges if e.source_node_id != e.target_node_id
         ]
 
-        # Step 5: Persist
+        # Step 6: Persist
         self._write_to_spanner_graph(resolved_nodes, resolved_edges)
         self._write_to_bigquery(resolved_nodes, resolved_edges)
 
