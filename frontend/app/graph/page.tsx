@@ -141,19 +141,31 @@ export default function KnowledgeGraphViewer() {
         </div>
 
         {/* Legend */}
-        <div className="absolute bottom-12 left-12 bg-slate-900/80 backdrop-blur-md p-4 rounded-2xl border border-slate-800 shadow-2xl space-y-3">
+        <div className="absolute bottom-12 left-12 bg-slate-900/80 backdrop-blur-md p-4 rounded-2xl border border-slate-800 shadow-2xl space-y-3 z-10">
           <div className="text-[10px] uppercase font-bold tracking-widest text-slate-500 mb-1">Entity Map</div>
           <div className="flex items-center gap-3">
-            <div className="w-3 h-3 rounded-full bg-blue-500" />
-            <span className="text-xs text-slate-300">Person</span>
+            <div className="w-3 h-3 rounded-full bg-[#a855f7]" />
+            <span className="text-xs text-slate-300">Field / Concept</span>
           </div>
           <div className="flex items-center gap-3">
-            <div className="w-3 h-3 bg-green-500" />
-            <span className="text-xs text-slate-300">Organization</span>
+            <div className="w-3 h-3 bg-[#22c55e] rounded-sm" />
+            <span className="text-xs text-slate-300">Organization / Workspace</span>
           </div>
           <div className="flex items-center gap-3">
-            <div className="w-3 h-3 bg-yellow-500 rotate-45" />
-            <span className="text-xs text-slate-300">Product</span>
+            <div className="w-3 h-3 bg-[#eab308] rotate-45 transform origin-center" />
+            <span className="text-xs text-slate-300">Product / Dimension</span>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="w-3 h-3 bg-[#f43f5e] clip-octagon" style={{ clipPath: 'polygon(30% 0%, 70% 0%, 100% 30%, 100% 70%, 70% 100%, 30% 100%, 0% 70%, 0% 30%)' }} />
+            <span className="text-xs text-slate-300">Event / Timestamp</span>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="w-3 h-3 bg-[#06b6d4] clip-hexagon" style={{ clipPath: 'polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%)' }} />
+            <span className="text-xs text-slate-300">Location / Hub</span>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="w-3 h-3 rounded-full bg-[#3b82f6]" />
+            <span className="text-xs text-slate-300">Person / User</span>
           </div>
         </div>
       </div>
